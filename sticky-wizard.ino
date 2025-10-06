@@ -73,8 +73,8 @@ void setup() {
   Serial.println("GPIO pins OK");
 
   Serial.println("Setting up stepper motor...");
-  stepper.setMaxSpeed(10000);
-  stepper.setAcceleration(5000);
+  stepper.setMaxSpeed(40000);  // Way faster - was 10000
+  stepper.setAcceleration(20000);  // Faster ramp - was 5000
   stepper.setCurrentPosition(homeOffset);
   Serial.println("Stepper motor OK");
 
@@ -130,6 +130,35 @@ void handleEncoder() {
     // Haptic feedback
     M5Dial.Speaker.tone(8000, 20);
 
+    // If dispensing, ignore encoder
+    if (isDispensing) {
+      return;
+    }
+
+    // Check if we should change modes or adjust values
+    // In manual mode with units = 0, or retract/setup modes - dial changes mode
+    // Otherwise dial adjusts the value
+
+    bool shouldChangeMode = false;
+    if (currentMode == MANUAL_ADVANCE && manualUnits == 0.0) {
+      shouldChangeMode = true;  // Manual mode with nothing set - change modes
+    } else if (currentMode == FULL_RETRACT) {
+      shouldChangeMode = true;  // Retract mode has no values - change modes
+    } else if (currentMode == KNOWN_PARTS && partCount == 0) {
+      shouldChangeMode = true;  // No parts saved - change modes
+    }
+
+    if (shouldChangeMode) {
+      // Change mode
+      int newMode = (int)currentMode + (delta > 0 ? 1 : -1);
+      if (newMode < 0) newMode = 3;
+      if (newMode > 3) newMode = 0;
+      currentMode = (Mode)newMode;
+      drawInterface();
+      return;
+    }
+
+    // Adjust values within current mode
     // Variable increment based on scroll speed
     unsigned long timeSinceLastMove = millis() - lastEncoderMove;
     float increment = 0.1;
@@ -139,16 +168,14 @@ void handleEncoder() {
 
     switch (currentMode) {
       case MANUAL_ADVANCE:
-        if (!isDispensing) {
-          manualUnits += (delta > 0 ? increment : -increment);
-          if (manualUnits < 0) manualUnits = 0;
-          if (manualUnits > 99.9) manualUnits = 99.9;
-          drawInterface();
-        }
+        manualUnits += (delta > 0 ? increment : -increment);
+        if (manualUnits < 0) manualUnits = 0;
+        if (manualUnits > 99.9) manualUnits = 99.9;
+        drawInterface();
         break;
 
       case KNOWN_PARTS:
-        if (partCount > 0 && !isDispensing) {
+        if (partCount > 0) {
           selectedPart += delta;
           if (selectedPart < 0) selectedPart = partCount - 1;
           if (selectedPart >= partCount) selectedPart = 0;
@@ -159,6 +186,10 @@ void handleEncoder() {
       case SETUP:
         setupOption = (setupOption + 1) % 2;
         drawInterface();
+        break;
+
+      case FULL_RETRACT:
+        // Shouldn't get here due to shouldChangeMode check above
         break;
     }
   }
@@ -175,11 +206,15 @@ void handleButtons() {
   
   if (currentlyPressed && !actionExecuted) {
     if (millis() - buttonPressStart > 800) {
-      currentMode = (Mode)((currentMode + 1) % 4);
-      Serial.print("LONG PRESS - Mode: ");
-      Serial.println(currentMode);
-      drawInterface();
-      actionExecuted = true;
+      // Long press only works during dispensing - emergency stop
+      if (isDispensing) {
+        Serial.println("LONG PRESS - INTERRUPT! Going home");
+        isDispensing = false;
+        stepper.moveTo(0);
+        isDispensing = true;
+        actionExecuted = true;
+        M5Dial.Speaker.tone(4000, 200);  // Low beep for interrupt
+      }
     }
   }
   
@@ -356,7 +391,7 @@ void drawInterface() {
     case FULL_RETRACT:
       {
         M5Dial.Display.setFont(&fonts::Orbitron_Light_32);
-        M5Dial.Display.setTextSize(1.5);
+        M5Dial.Display.setTextSize(1.2);
         M5Dial.Display.setTextColor(modeColor);
         M5Dial.Display.drawString("GO HOME", 120, 110);
 

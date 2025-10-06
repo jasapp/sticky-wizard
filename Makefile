@@ -2,8 +2,8 @@
 # Because fuck clicking around in GUIs
 
 ARDUINO_CLI = /home/jasapp/bin/arduino-cli
-SKETCH = lame_m5dial.ino
-BOARD = arduino:esp32:nano_nora
+SKETCH = sticky-wizard.ino
+BOARD = esp32:esp32:m5stack_dial
 PORT = /dev/ttyACM0
 
 # Build settings
